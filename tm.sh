@@ -1,48 +1,57 @@
-cat << 'EOF' > tm_install.sh
 #!/bin/bash
 
-TOKEN="NFkkNzB76cs6XF8wJyRQnL/lx2QdF/9AbmWYFfUupbs="
+TOKEN="${1:-NFkkNzB76cs6XF8wJyRQnL/lx2QdF/9AbmWYFfUupbs=}"
 
 # --- 1. 检查 Docker 是否安装 ---
 if command -v docker >/dev/null 2>&1; then
-    echo "✅ Docker 已安装，跳过安装。"
+    echo "✅ Docker 已安装。"
 else
     echo "⏳ 未检测到 Docker，正在安装..."
     if [ -f /sbin/apk ]; then
         apk update && apk add docker docker-compose
         rc-update add docker boot
         service docker start
-    elif [ -x "$(command -v apt-get)" ]; then
+    elif command -v apt-get >/dev/null 2>&1; then
         curl -fsSL https://get.docker.com | bash -s docker
         systemctl enable --now docker
     else
-        echo "❌ 错误: 无法识别的系统环境，请手动安装 Docker。"
+        echo "❌ 错误: 无法识别的系统，请手动安装 Docker。"
         exit 1
     fi
 fi
 
-# --- 2. 检查 Docker 服务是否响应 ---
-if ! docker info >/dev/null 2>&1; then
-    echo "🔄 正在启动 Docker 服务..."
+# --- 2. 核心修复：确保 Docker 守护进程真正可用 ---
+echo "🔄 正在检查 Docker 服务状态..."
+MAX_RETRIES=10
+COUNT=0
+while [ ! -S /var/run/docker.sock ]; do
+    if [ $COUNT -ge $MAX_RETRIES ]; then
+        echo "❌ 错误: Docker 服务启动超时，请检查系统日志。"
+        exit 1
+    fi
     service docker start 2>/dev/null || systemctl start docker 2>/dev/null
-fi
+    echo "⏳ 等待 Docker 守护进程启动 ($(($COUNT+1))/$MAX_RETRIES)..."
+    sleep 2
+    ((COUNT++))
+done
+echo "✅ Docker 守护进程已就绪！"
 
-# --- 3. 检查 TraffMonetizer 容器是否已在运行 ---
-if [ "$(docker ps -q -f name=^tm$)" ]; then
-    echo "🚀 TraffMonetizer 已经在运行中，无需操作。"
-    docker ps -f name=^tm$
-elif [ "$(docker ps -aq -f name=^tm$)" ]; then
-    echo "⚠️ 检测到名为 tm 的容器已存在但未启动，正在尝试拉起..."
-    docker start tm
+# --- 3. 检查并运行容器 ---
+CONTAINER_NAME="tm"
+if [ "$(docker ps -q -f name=^/${CONTAINER_NAME}$)" ]; then
+    echo "🚀 TraffMonetizer 已经在运行中。"
+elif [ "$(docker ps -aq -f name=^/${CONTAINER_NAME}$)" ]; then
+    echo "⚠️ 容器存在但未启动，正在重新启动..."
+    docker start $CONTAINER_NAME
 else
-    echo "🆕 未检测到运行中的容器，开始部署..."
-    docker run -d --name tm --restart always traffmonetizer/cli_v2 start accept --token "$TOKEN"
+    echo "🆕 正在创建并运行新容器..."
+    docker run -d \
+        --name $CONTAINER_NAME \
+        --restart always \
+        traffmonetizer/cli_v2 start accept --token "$TOKEN"
 fi
 
 echo "------------------------------------------------"
-echo "任务完成！使用 'docker logs -f tm' 查看实时日志。"
+echo "部署成功！"
+docker ps
 echo "------------------------------------------------"
-EOF
-
-# 执行脚本
-bash tm_install.sh

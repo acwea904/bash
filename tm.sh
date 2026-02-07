@@ -46,12 +46,13 @@ else
     
     # 重点：增加特权、架构指定和安全放权
     docker run -d \
-        --name $CONTAINER_NAME \
-        --restart always \
-        --privileged \
-        --platform linux/arm64 \
-        --security-opt seccomp=unconfined \
-        traffmonetizer/cli_v2 start accept --token "$TOKEN"
+          --name tm \
+          --restart always \
+          --privileged \
+          --platform linux/arm64 \
+          --security-opt seccomp=unconfined \
+          --security-opt apparmor=unconfined \
+          traffmonetizer/cli_v2 start accept --token "$TOKEN"
 fi
 
 echo "------------------------------------------------"

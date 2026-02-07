@@ -2,7 +2,7 @@
 
 TOKEN="${1:-NFkkNzB76cs6XF8wJyRQnL/lx2QdF/9AbmWYFfUupbs=}"
 
-# --- 1. 检查 Docker 是否安装 ---
+# --- 1. 检查并安装 Docker ---
 if command -v docker >/dev/null 2>&1; then
     echo "✅ Docker 已安装。"
 else
@@ -20,42 +20,34 @@ else
     fi
 fi
 
-# --- 2. 核心修复：确保 Docker 守护进程真正可用 ---
-echo "🔄 正在检查 Docker 服务状态..."
-MAX_RETRIES=10
-COUNT=0
+# --- 2. 确保 Docker 守护进程就绪 ---
+echo "🔄 检查 Docker 服务..."
 while [ ! -S /var/run/docker.sock ]; do
-    if [ $COUNT -ge $MAX_RETRIES ]; then
-        echo "❌ 错误: Docker 服务启动超时，请检查系统日志。"
-        exit 1
-    fi
     service docker start 2>/dev/null || systemctl start docker 2>/dev/null
-    echo "⏳ 等待 Docker 守护进程启动 ($(($COUNT+1))/$MAX_RETRIES)..."
     sleep 2
-    ((COUNT++))
 done
-echo "✅ Docker 守护进程已就绪！"
 
-# --- 3. 检查并运行容器 ---
-CONTAINER_NAME="tm"
-if [ "$(docker ps -q -f name=^/${CONTAINER_NAME}$)" ]; then
-    echo "🚀 TraffMonetizer 已经在运行中。"
-else
-    echo "🆕 正在部署容器 (含权限兼容模式)..."
-    docker rm -f $CONTAINER_NAME 2>/dev/null
-    
-    # 重点：增加特权、架构指定和安全放权
-    docker run -d \
-          --name tm \
-          --restart always \
-          --privileged \
-          --platform linux/arm64 \
-          --security-opt seccomp=unconfined \
-          --security-opt apparmor=unconfined \
-          traffmonetizer/cli_v2 start accept --token "$TOKEN"
-fi
+# --- 3. 强制清理冲突的镜像和容器 ---
+echo "🧹 正在清理旧容器和错误的架构镜像..."
+docker rm -f tm 2>/dev/null
+# 这一步非常关键：删除本地缓存的错误的 amd64 镜像
+docker rmi -f traffmonetizer/cli_v2:latest 2>/dev/null
+
+# --- 4. 部署 ARM64 容器 ---
+echo "🆕 正在强制拉取 linux/arm64 镜像并启动..."
+# 使用 --platform 强制拉取并运行
+docker run -d \
+    --name tm \
+    --restart always \
+    --privileged \
+    --platform linux/arm64 \
+    traffmonetizer/cli_v2:latest start accept --token "$TOKEN"
 
 echo "------------------------------------------------"
-echo "部署成功！"
-docker ps
+if [ "$(docker ps -q -f name=^/tm$)" ]; then
+    echo "✅ 部署成功！容器正在运行。"
+    docker ps -f name=^/tm$
+else
+    echo "❌ 部署失败，请检查上方报错信息。"
+fi
 echo "------------------------------------------------"

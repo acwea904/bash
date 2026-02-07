@@ -40,14 +40,17 @@ echo "✅ Docker 守护进程已就绪！"
 CONTAINER_NAME="tm"
 if [ "$(docker ps -q -f name=^/${CONTAINER_NAME}$)" ]; then
     echo "🚀 TraffMonetizer 已经在运行中。"
-elif [ "$(docker ps -aq -f name=^/${CONTAINER_NAME}$)" ]; then
-    echo "⚠️ 容器存在但未启动，正在重新启动..."
-    docker start $CONTAINER_NAME
 else
-    echo "🆕 正在创建并运行新容器..."
+    echo "🆕 正在部署容器 (含权限兼容模式)..."
+    docker rm -f $CONTAINER_NAME 2>/dev/null
+    
+    # 重点：增加特权、架构指定和安全放权
     docker run -d \
         --name $CONTAINER_NAME \
         --restart always \
+        --privileged \
+        --platform linux/arm64 \
+        --security-opt seccomp=unconfined \
         traffmonetizer/cli_v2 start accept --token "$TOKEN"
 fi
 
